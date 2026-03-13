@@ -1,0 +1,351 @@
+% compile with XeLaTeX
+\documentclass[dvipsnames,mathserif]{beamer}
+\setbeamertemplate{footline}[frame number]
+\setbeamercolor{footline}{fg=black}
+\setbeamerfont{footline}{series=\bfseries}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\usetheme{Darmstadt}
+
+\makeatletter
+\newcommand{\RTListe}{\raggedleft\rightskip\leftm}
+\newcommand{\leftm}{\@totalleftmargin}
+\makeatother
+
+\setbeamertemplate{frametitle}
+{\vspace*{-1mm}
+  \nointerlineskip
+    \begin{beamercolorbox}[sep=0.3cm,ht=2.2em,wd=\paperwidth]{frametitle}
+        \vbox{}\vskip-2ex%
+        \strut\hskip1ex\insertframetitle\strut
+        \vskip-0.8ex%
+    \end{beamercolorbox}
+}
+\makeatletter
+\setbeamertemplate{subsection in toc}
+{\leavevmode\rightskip=5ex%
+  \llap{\raise0.1ex\beamer@usesphere{subsection number projected}{bigsphere}\kern1ex}%
+  \inserttocsubsection\par%
+}
+\makeatother
+
+\setbeamertemplate{itemize item}{\scriptsize\raise1.25pt\hbox{\donotcoloroutermaths$\blacktriangleleft$}} 
+
+\defbeamertemplate{enumerate item}{square2}
+{\LR{
+    \hbox{%
+    \usebeamerfont*{item projected}%
+    \usebeamercolor[bg]{item projected}%
+    \vrule width2.25ex height1.85ex depth.4ex%
+    \hskip-2.25ex%
+    \hbox to2.25ex{%
+      \hfil%
+      {\color{fg}\insertenumlabel}%
+      \hfil}%
+  }%
+}}
+
+\setbeamertemplate{enumerate item}[square2]
+\setbeamertemplate{navigation symbols}{}
+
+% FOSSEE LOGO ON EVERY PAGE (loaded from local path)
+\logo{\includegraphics[height=0.9cm]{fossee_logo.png}}
+% NOTE for Overleaf: Upload fossee_logo.png and change path to just {fossee_logo.png}
+
+\setbeamertemplate{caption}[numbered]
+\begin{document}
+
+\rightskip\rightmargin
+\title{\textbf{Unstructured Mesh Generation} \\ with \underline{cfMesh} in OpenFOAM}
+\author{\Large \textbf{Pranjal Kumar Shukla}}
+\institute{\large\textbf{FOSSEE Internship -- Week 2 Progress Report}\\[4pt]
+SCAI School\\[2pt]
+VIT Bhopal University}
+\footnotesize{\date{\today}}
+
+
+\begin{frame}
+\maketitle
+\end{frame}
+
+% TABLE OF CONTENTS
+\begin{frame}{Outline}
+\footnotesize \tableofcontents
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 1. PROJECT STATEMENT
+%% ─────────────────────────────────────────
+\section{Project Statement}
+\begin{frame}{1. Project Statement}
+    \textbf{\underline{Core Goal}}: Build a \textbf{Blender-integrated GUI} for \textbf{OpenFOAM + cfMesh} that enables engineers to:
+    \vspace{0.3cm}
+    \begin{itemize}
+        \item Import STL geometry files \textit{directly} into Blender
+        \item Automatically detect and repair geometry defects \textbf{before} meshing
+        \item Run \textbf{cfMesh} with a single click -- no terminal commands needed
+        \item Inspect mesh quality \textbf{in real time} with color-mapped visuals
+        \item Prepare CFD-ready cases for OpenFOAM solvers seamlessly
+    \end{itemize}
+    \vspace{0.3cm}
+    \begin{alertblock}{Why this matters}
+        Today, a CFD engineer must manually run 4-6 terminal tools before even starting a simulation.
+        Our tool \textbf{collapses this into a single visual workflow.}
+    \end{alertblock}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 2. BACKGROUND & CONTEXT
+%% ─────────────────────────────────────────
+\section{Background \& Context}
+\begin{frame}{2.1 What is Meshing?}
+    \begin{itemize}
+        \item \textbf{Meshing} divides a 3D geometry into thousands (or millions) of small cells.
+        \item Each cell is where the \textbf{CFD solver} computes: velocity, pressure, temperature, turbulence.
+        \item \underline{Without a valid mesh, no CFD simulation is possible.}
+        \item Types of mesh cells used in OpenFOAM:
+        \begin{itemize}
+            \item \textbf{Hexahedral} -- high accuracy, hard to generate for complex shapes
+            \item \textbf{Tetrahedral} -- easy to generate, less accurate
+            \item \textbf{Polyhedral} -- best balance, what cfMesh specialises in
+            \item \textbf{Prism/Boundary layers} -- critical near walls for viscous flow
+        \end{itemize}
+    \end{itemize}
+    \begin{center}
+        \includegraphics[width=0.8\textwidth]{mesh_cell_types.png}
+    \end{center}
+\end{frame}
+
+\begin{frame}{2.2 What is cfMesh?}
+    \begin{itemize}
+        \item \textbf{cfMesh} is an \textit{open-source} meshing library built on top of OpenFOAM.
+        \item It converts STL geometry files into \textbf{computational meshes} automatically.
+        \item Key advantages over the standard \textit{snappyHexMesh}:
+        \begin{itemize}
+            \item \textbf{Better boundary layer generation} near curved surfaces
+            \item \textbf{Handles trailing edges} (airfoils, turbine blades) much more reliably
+            \item \textbf{Automatic surface feature extraction} -- no manual feature edges needed
+            \item Produces \textbf{polyhedral and hex-dominant meshes} with fewer commands
+        \end{itemize}
+        \item Workflow: \\
+        \texttt{surfaceFile.stl} $\rightarrow$ \texttt{cartesianMesh} $\rightarrow$ \texttt{meshDict} $\rightarrow$ mesh output
+    \end{itemize}
+    \begin{center}
+        \includegraphics[width=0.8\textwidth]{snappyHexVsSnappy.png}
+    \end{center}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 3. CHALLENGES IN MESHING
+%% ─────────────────────────────────────────
+\section{Challenges in Meshing}
+\begin{frame}{3.1 STL Geometry Problems}
+    \textbf{Most real-world STL files are NOT clean.} Common failures:
+    \begin{itemize}
+        \item \textbf{Holes / open surfaces}: Mesh generator cannot distinguish inside vs. outside
+        \item \textbf{Non-manifold edges}: Edges shared by more than 2 faces -- invalid topology
+        \item \textbf{Inverted normals}: Normals pointing inwards -- boundaries misidentified
+        \item \textbf{Overlapping triangles}: Causes mesh intersections and bad cells
+        \item \textbf{Very tiny triangles}: Creates huge skewness in the resulting grid
+        \item \textbf{Sharp undetected edges}: Trailing edges not captured = smooth where it shouldn't be
+    \end{itemize}
+    \vspace{0.2cm}
+    \begin{block}{Result:}
+        If the geometry is broken $\rightarrow$ \textbf{cfMesh fails silently or produces an invalid mesh.}
+    \end{block}
+\end{frame}
+
+\begin{frame}{3.2 Boundary Layer \& Mesh Quality Problems}
+    \begin{columns}
+    \column{0.5\textwidth}
+    \textbf{Boundary Layer Challenges:}
+    \begin{itemize}
+        \item Layer cells must follow surface \textbf{curvature exactly}
+        \item Layers \textbf{collapse near sharp edges} (e.g. trailing edges of airfoils)
+        \item Small gaps or thin walls \textbf{break layer extrusion}
+        \item Wrong first-cell height ($y^+$) gives \textbf{wrong turbulence results}
+    \end{itemize}
+    \column{0.5\textwidth}
+    \textbf{Mesh Quality Metrics to Monitor:}
+    \begin{itemize}
+        \item \textbf{Skewness} -- deviation of cell face from ideal
+        \item \textbf{Non-orthogonality} -- angle between face normal and cell-to-cell vector
+        \item \textbf{Aspect ratio} -- cell elongation
+        \item \textbf{Cell volume} -- extreme variation leads to numerical errors
+        \item \textbf{Max non-orth > 70°} $\rightarrow$ solver divergence
+    \end{itemize}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{3.3 Visualization \& Integration Challenges}
+    \begin{itemize}
+        \item \textbf{Large mesh rendering}: A 10M+ cell mesh is very hard to display interactively
+        \begin{itemize}
+            \item ParaView works, but is \textit{external} -- constant tool-switching breaks workflow
+            \item Only rendering the surface reduces memory but hides internal quality issues
+        \end{itemize}
+        \item \textbf{Meshing wait time}: Complex geometries take \textbf{minutes to hours} with no feedback
+        \item \textbf{OpenFOAM is CLI-only}: No built-in GUI makes it inaccessible to new users
+        \item \textbf{ParaView data export bugs}: NaN values appear when exporting CSVs from Point Data (must convert to Cell Data first)
+        \item \textbf{2D sampling issues}: Sampling must be done slightly inside domain boundaries (0.001 -- 0.999 trick)
+    \end{itemize}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 4. OBJECTIVES
+%% ─────────────────────────────────────────
+\section{Objective}
+\begin{frame}{4. Objectives}
+    Develop a \textbf{GUI-driven Blender add-on} that makes OpenFOAM + cfMesh meshing:
+    \vspace{0.2cm}
+    \begin{enumerate}
+        \item \textbf{\underline{Accessible}}: No terminal commands -- full meshing from point-and-click
+        \item \textbf{\underline{Intelligent}}: Auto-detect and fix STL geometry issues before meshing
+        \item \textbf{\underline{Interactive}}: Real-time mesh quality visualization with color maps in Blender viewport
+        \item \textbf{\underline{Robust}}: Handle complex aerodynamic shapes (trailing edges, curved surfaces) correctly
+        \item \textbf{\underline{Efficient}}: Give live progress feedback during meshing rather than waiting blindly
+    \end{enumerate}
+    \vspace{0.2cm}
+    \begin{block}{Target Users}
+        CFD engineers, researchers, and students who work with OpenFOAM but want a faster, visual workflow -- without learning 6+ CLI tools.
+    \end{block}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 5. PROPOSED SOLUTION
+%% ─────────────────────────────────────────
+\section{Proposed Solution}
+\begin{frame}{5.1 Core Architecture}
+    The tool integrates these components under a single Blender GUI:
+    \vspace{0.2cm}
+    \begin{enumerate}
+        \item \textbf{STL Importer \& Pre-processor}: Load STL into Blender $\rightarrow$ run geometry health checks automatically
+        \item \textbf{cfMesh Controller}: Auto-generate \texttt{meshDict} from GUI inputs and run meshing
+        \item \textbf{Mesh Quality Inspector}: Post-process output with color-mapped metrics (skewness, non-orth, aspect ratio)
+        \item \textbf{Case Exporter}: Export OpenFOAM-ready case directory with correct \texttt{0/}, \texttt{constant/}, \texttt{system/} structure
+    \end{enumerate}
+    \vspace{0.2cm}
+    \begin{center}
+        \includegraphics[width=0.9\textwidth]{flowchart.png}
+    \end{center}
+\end{frame}
+
+\begin{frame}{5.2 Uniqueness vs Existing GUIs}
+    \subsection{Comparison with Existing Tools (FEATool, SimScale)}
+    \begin{table}
+    \centering
+    \scriptsize
+    \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Feature} & \textbf{Ours} & \textbf{FEATool} & \textbf{SimScale} & \textbf{Manual CLI} \\
+    \midrule
+    Blender-native viewport & \textbf{Yes} & No & No & No \\
+    Free \& open-source & \textbf{Yes} & No (MATLAB) & No (cloud, paid) & Yes \\
+    STL auto-repair & \textbf{Yes} & No & Partial & Manual \\
+    cfMesh integration & \textbf{Yes} & No & No & Yes (CLI) \\
+    Real-time mesh quality & \textbf{Yes} & Partial & Yes & ParaView only \\
+    Works fully offline & \textbf{Yes} & Yes & No & Yes \\
+    \bottomrule
+    \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{alertblock}{Key Differentiator}
+        We are the \textbf{only free, Blender-integrated, offline-capable} tool with \textbf{automated STL repair + cfMesh + real-time quality inspection.}
+    \end{alertblock}
+\end{frame}
+
+\begin{frame}{5.3 Enhancement Ideas (Future Scope)}
+    \begin{itemize}
+        \item \textbf{⭐ Real-Time Mesh Quality Analyzer}: Map skewness/non-orth metrics to a live heatmap in the Blender viewport
+        \item \textbf{�� Auto Boundary Layer Calculator}: User inputs Fluid Velocity + Reynolds Number $\rightarrow$ tool computes optimal first-cell height for $y^+ \approx 1$
+        \item \textbf{�� Mesh Fix Suggestion Engine}: After meshing, tool highlights problematic zones and suggests specific fixes (refine here, reduce cell size there)
+        \item \textbf{�� Live Meshing Progress}: Instead of a blank terminal, show animated layer-by-layer mesh generation
+        \item \textbf{�� Mesh Comparison Tool}: Side-by-side stats for Mesh A vs Mesh B (cells, skewness, non-orth)
+        \item \textbf{�� GPU Visualization}: Use OpenGL/WebGL to render 10M+ cell meshes interactively in the viewer
+    \end{itemize}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 6. WORK DONE (WEEK 2)
+%% ─────────────────────────────────────────
+\section{Work Done}
+\begin{frame}{6. Work Done -- Week 2}
+    \begin{itemize}
+        \item \textbf{OpenFOAM Installation}: Set up OpenFOAM 11 on Linux (\texttt{source /opt/openfoam11/etc/bashrc})
+        \item \textbf{Cavity Tutorial}: Ran full \texttt{blockMesh} $\rightarrow$ \texttt{icoFoam} $\rightarrow$ \texttt{paraFoam} pipeline on the lid-driven cavity case
+        \item \textbf{Directory Structure}: Studied the 3-folder OpenFOAM layout: \texttt{0/} (initial conditions), \texttt{constant/} (mesh + properties), \texttt{system/} (solver controls)
+        \item \textbf{blockMeshDict}: Studied vertex coordinates, block definitions, grading, boundary patches; wrote a Python script (\texttt{classy\_blocks}) to generate \texttt{blockMeshDict} programmatically
+        \item \textbf{ParaView Workflow}: Applied filters, plotted velocity and pressure profiles, exported CSV data
+        \begin{itemize}
+            \item \textbf{Bug Fixed}: NaN values in exported CSV $\rightarrow$ caused by Point Data; switching to Cell Data resolved it
+            \item \textbf{Domain Sampling}: For 2D cases, sample slightly inside boundary (0.001 -- 0.999 trick) to avoid edge artefacts
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 7. TIMELINE & MILESTONES
+%% ─────────────────────────────────────────
+\section{Timeline \& Milestones}
+\begin{frame}{7. Timeline \& Milestones}
+    \begin{table}
+    \centering
+    \footnotesize
+    \begin{tabular}{|c|l|l|}
+    \hline
+    \textbf{Week} & \textbf{Task} & \textbf{Status} \\ \hline
+    1 & Project Selection \& Initial Briefing & \textcolor{green}{\textbf{Done}} \\ \hline
+    2 & OpenFOAM setup, cavity tutorial, ParaView, blockMeshDict & \textcolor{green}{\textbf{Done}} \\ \hline
+    3 -- 4 & Study cfMesh pipeline; integrate STL loader in Blender & Upcoming \\ \hline
+    5 -- 6 & Implement auto STL repair + cfMesh one-click meshing & Upcoming \\ \hline
+    7 -- 8 & Mesh quality heatmap viewer; boundary layer calculator & Upcoming \\ \hline
+    9 -- 10 & Testing on real-world geometries (airfoil, car, pipe) & Upcoming \\ \hline
+    11 -- 12 & Documentation, demo video, final submission & Upcoming \\ \hline
+    \end{tabular}
+    \end{table}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 8. DELIVERABLES
+%% ─────────────────────────────────────────
+\section{Deliverables}
+\begin{frame}{8. Deliverables}
+    At the end of the project, we will deliver:
+    \vspace{0.2cm}
+    \begin{enumerate}
+        \item \textbf{A Blender Add-on} -- fully functional GUI connecting OpenFOAM + cfMesh (installable \texttt{.zip})
+        \item \textbf{Automated STL Pre-processor} -- detects holes, non-manifold edges, inverted normals and suggests or applies repairs
+        \item \textbf{Mesh Quality Visualizer} -- color-mapped heatmaps of skewness, non-orthogonality inside Blender viewport
+        \item \textbf{Boundary Layer Auto-calculator} -- given flow conditions, outputs optimal $y^+$ and first-cell height
+        \item \textbf{Documentation \& User Guide} -- step-by-step tutorial for each feature with example STL files
+        \item \textbf{Demo Video} -- screen recording of full workflow: STL import $\rightarrow$ repair $\rightarrow$ mesh $\rightarrow$ quality inspection
+    \end{enumerate}
+\end{frame}
+
+
+%% ─────────────────────────────────────────
+%% 9. REFERENCES
+%% ─────────────────────────────────────────
+\section{References}
+\begin{frame}{References}
+    \begin{itemize}
+        \item OpenFOAM v11 User Guide -- \textit{openfoam.org}
+        \item cfMesh Reference Manual -- \textit{cfmesh.com}
+        \item FEATool Multiphysics OpenFOAM GUI -- \textit{featool.com}
+        \item FOSSEE Project Documentation -- \textit{fossee.in}
+        \item Jasak, H. (2009). OpenFOAM: Open source CFD in research and industry. \textit{Int. J. Naval Arch.}
+        \item Project 3 Design Notes and Requirements (internal)
+    \end{itemize}
+\end{frame}
+
+\end{document}

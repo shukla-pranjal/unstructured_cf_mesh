@@ -1,0 +1,40 @@
+# Presentation Outline - OpenFOAM Meshing Integration (Phase 2)
+
+## Slide 1: Progress Overview
+- Successful migration from external `cfMesh` to built-in OpenFOAM `snappyHexMesh` pipeline.
+- 100% automated workflow: No manual dictionary editing required.
+- Integration results validated in ParaView.
+
+## Slide 2: Technical Challenges & Debugging
+- **Crash Recovery**: Resolved Floating Point Exceptions in `blockMesh` by implementing adaptive cell-count logic.
+- **Python-Shell Interface**: Fixed environment sourcing issues to ensure OpenFOAM commands run natively from within Blender.
+- **Context Awareness**: Addon now automatically manages Blender's selection and mode states.
+
+## Slide 3: New Features (v4)
+- **Advanced UI**: Direct control over boundary layer thickness and refinement ratios.
+- **Surface Integrity**: Automatic triangulation ensures 100% STL compatibility.
+- **Self-Cleaning**: Temporary folders and directory-conflict issues handled gracefully.
+
+## Slide 4: Results & Validation
+- **Quality Check**: 0 mesh errors (non-orthogonality/skewness).
+- **Layer Success**: High occupancy rate for boundary layer addition.
+- **Visuals**: Successful "round-trip" (Blender -> OpenFOAM -> Blender).
+
+## Slide 5: Future Roadmap (Week 4)
+- Solver automation (`icoFoam`).
+- Asynchronous execution (non-blocking UI).
+- Post-processing hooks for automated data visualization.
+
+---
+
+### 🎨 Visual & Flowchart Suggestions:
+
+1. **Flowchart (The Pipeline)**:
+   [Blender Mesh] -> [Triangulate/Sync] -> [.STL Export] -> [blockMesh (Refined Hex)] -> [snappyHexMesh (Snapping/Layers)] -> [foamToSurface] -> [Blender Import]
+
+2. **Image Idea (Side-by-Side)**:
+   - Left: Original low-poly Blender cube.
+   - Right: The same cube in Blender after meshing (showing the wireframe grid and boundary layers).
+
+3. **ParaView Screenshot**:
+   - A cross-section (Clip) of the mesh proving that the internal volume is filled with hex cells.
