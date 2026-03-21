@@ -1,0 +1,182 @@
+% compile with XeLaTeX
+\documentclass[dvipsnames,mathserif]{beamer}
+\setbeamertemplate{footline}[frame number]
+\setbeamercolor{footline}{fg=black}
+\setbeamerfont{footline}{series=\bfseries}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\usetheme{Darmstadt}
+
+\makeatletter
+\newcommand{\RTListe}{\raggedleft\rightskip\leftm}
+\newcommand{\leftm}{\@totalleftmargin}
+\makeatother
+
+\setbeamertemplate{frametitle}
+{\vspace*{-1mm}
+  \nointerlineskip
+    \begin{beamercolorbox}[sep=0.3cm,ht=2.2em,wd=\paperwidth]{frametitle}
+        \vbox{}\vskip-2ex%
+        \strut\hskip1ex\insertframetitle\strut
+        \vskip-0.8ex%
+    \end{beamercolorbox}
+}
+\makeatletter
+\setbeamertemplate{subsection in toc}
+{\leavevmode\rightskip=5ex%
+  \llap{\raise0.1ex\beamer@usesphere{subsection number projected}{bigsphere}\kern1ex}%
+  \inserttocsubsection\par%
+}
+\makeatother
+
+\setbeamertemplate{itemize item}{\scriptsize\raise1.25pt\hbox{\donotcoloroutermaths$\blacktriangleleft$}} 
+
+\defbeamertemplate{enumerate item}{square2}
+{\LR{
+    \hbox{%
+    \usebeamerfont*{item projected}%
+    \usebeamercolor[bg]{item projected}%
+    \vrule width2.25ex height1.85ex depth.4ex%
+    \hskip-2.25ex%
+    \hbox to2.25ex{%
+      \hfil%
+      {\color{fg}\insertenumlabel}%
+      \hfil}%
+  }%
+}}
+
+\setbeamertemplate{enumerate item}[square2]
+\setbeamertemplate{navigation symbols}{}
+
+% FOSSEE LOGO ON EVERY PAGE
+\logo{\includegraphics[height=0.9cm]{fossee_logo.png}}
+
+\setbeamertemplate{caption}[numbered]
+\begin{document}
+
+\rightskip\rightmargin
+\title{\textbf{Simulation Orchestration \& Async Integration} \\ Technical Progress Report (Phase 3)}
+\author{\Large \textbf{Pranjal Kumar Shukla}}
+\institute{\large\textbf{FOSSEE Internship -- Progress Report}\\[4pt]
+SCAI School\\[2pt]
+VIT Bhopal University}
+\footnotesize{\date{\today}}
+
+
+\begin{frame}
+\maketitle
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 1. ORCHESTRATION & ASYNC
+%% ─────────────────────────────────────────
+\section{Solver Automation}
+\begin{frame}{1. Multi-Solver Integration}
+    \begin{itemize}
+        \item \textbf{Objective}: Evolve the addon from a pure meshing utility into a complete CFD orchestrator.
+        \item \textbf{Implementation}: Integrated GUI controls to configure real-world physical bounds.
+        \begin{itemize}
+            \item Selection between \texttt{icoFoam} (Transient) and \texttt{simpleFoam} (Steady-State).
+            \item Parametric inputs for Kinematic Viscosity ($\nu$) and Inlet Velocity Vectors.
+        \end{itemize}
+        \item \textbf{Dynamic Dictionary Gen}: The backend Python engine cleanly writes the \texttt{0/U}, \texttt{0/p}, and \texttt{system/controlDict} configurations natively across OS boundaries.
+    \end{itemize}
+    \begin{center}
+        \includegraphics[width=0.7\textwidth]{ui_week3_panels.png}
+        \caption*{Revamped Sub-Panel UI for Mesh, Physics, and Post-Processing}
+    \end{center}
+\end{frame}
+
+\begin{frame}{2. Asynchronous Execution Pipeline}
+    \begin{itemize}
+        \item \textbf{The Bottleneck}: OpenFOAM solver iterations freeze Blender's main UI thread, forcing users to "blindly wait."
+        \item \textbf{The Solution}: 
+        \begin{itemize}
+            \item Implemented Python \texttt{threading.Thread} for all terminal background processes.
+            \item Registered a recurring \texttt{bpy.app.timers} hook to constantly poll Global State variables.
+        \end{itemize}
+        \item \textbf{Result}: The Blender viewport remains 100\% fluid and functional while \texttt{snappyHexMesh} or \texttt{simpleFoam} chew through CPU cycles.
+    \end{itemize}
+    \begin{center}
+        \includegraphics[width=0.6\textwidth]{async_status.png}
+        \caption*{Real-Time Non-Blocking Status Indicator}
+    \end{center}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 2. BUG FIXES & OF-11 QUIRKS
+%% ─────────────────────────────────────────
+\section{Engineering Challenges}
+\begin{frame}{3. Resolving Python Architecture Bugs}
+    Developing highly compartmentalized Blender extensions led to severe edge cases:
+    \begin{itemize}
+        \item \textbf{\texttt{bl\_info} Registration}: A typo in the registration header (\texttt{maxbl\_info}) caused the entire Addon to become invisible to Blender's plugin parser.
+        \item \textbf{Module NotFound Errors}: Attempting standard Python \texttt{import run\_cfmesh} failed catastrophically inside Blender's complex system path. 
+        \item \textbf{The Fix}: Implemented strict **Relative Imports** (\texttt{from . import run\_cfmesh}) forcing Blender to reliably resolve the module within its own localized ZIP container.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{4. Navigating OpenFOAM 11's New Paradigm}
+    \begin{alertblock}{The "simpleFoam is Superseded" Error}
+        OpenFOAM 11 entirely deleted standard standalone solver aliases in favor of a universal module execution layer.
+    \end{alertblock}
+    \begin{itemize}
+        \item \textbf{The Migration}: We transitioned the native Blender call from \texttt{simpleFoam} to \texttt{foamRun -solver incompressibleFluid}.
+        \item \textbf{Dictionary Overhauls}: 
+        \begin{itemize}
+            \item OF-11 dynamically determines if a simulation is Steady vs Transient based on the \texttt{ddtSchemes} variable.
+            \item Implemented logic to inject \texttt{steadyState} and \texttt{SIMPLE} equation blocks dynamically depending on the user's dropdown choice in the Blender UI.
+            \item Added explicit generation for \texttt{constant/momentumTransport} to satisfy OF-11's modular turbulence checking.
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{5. Fixing the Hollow Mesh Failure}
+    \begin{itemize}
+        \item \textbf{Issue}: \texttt{snappyHexMesh} frequently returned an un-meshed solid cube instead of the desired object.
+        \item \textbf{Cause \#1}: The \texttt{locationInMesh} point was hardcoded to \texttt{(0,0,0)}. If an object sits at the exact origin, OpenFOAM attempts to mesh the \textit{inside} of it instead of the surrounding wind tunnel!
+        \item \textbf{Cause \#2}: User-favorites like the "Suzanne" monkey are not watertight surfaces.
+        \item \textbf{Resolution}: Shifted the internal meshing coordinate to \texttt{(1.9, 1.9, 1.9)} to guarantee location in the external fluid domain.
+    \end{itemize}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 3. VISUALIZATION & WRAP UP
+%% ─────────────────────────────────────────
+\section{Visualization}
+\begin{frame}{6. ParaView Integration}
+    \begin{columns}
+    \column{0.5\textwidth}
+    The ultimate goal of Phase 3 was seamless End-to-End orchestration.
+    \begin{itemize}
+        \item A new native UI button generates the `.foam` environment trigger file and launches ParaView automatically.
+        \item Fully bridges the gap between Blender's 3D workspace, OpenFOAM's simulation engine, and ParaView's post-processing rendering array.
+    \end{itemize}
+    \column{0.5\textwidth}
+    \begin{center}
+        \includegraphics[width=0.9\textwidth]{paraview_result.png}
+        \caption*{Steady-State Pressure visualized in ParaView}
+    \end{center}
+    \end{columns}
+\end{frame}
+
+\section{Next Phase}
+\begin{frame}{7. Toward Week 4: Advanced Scenarios}
+    \begin{enumerate}
+        \item \textbf{Dynamic Meshing}: Implementing parameter bounds for moving objects.
+        \item \textbf{In-Blender Post Processing}: Basic pseudo-color visualization onto Blender surfaces without needing ParaView.
+        \item \textbf{Turbulence Modeling}: Expanding the solver boundaries to support sophisticated \texttt{k-epsilon} and \texttt{k-omega} RANS models.
+    \end{enumerate}
+\end{frame}
+
+\begin{frame}
+    \begin{center}
+        \Huge \textbf{Thank You!} \\
+        \vspace{0.5cm}
+        \large Questions?
+    \end{center}
+\end{frame}
+
+\end{document}
