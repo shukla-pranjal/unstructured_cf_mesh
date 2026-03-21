@@ -1,0 +1,14 @@
+# Python Dependencies for unstructured_cf_mesh
+# -----------------------------------------------
+# Note: Blender comes with its own bundled Python environment 
+# which includes standard libraries like `os`, `subprocess`, and `numpy`.
+# You do NOT need to install anything to run the basic Blender add-on.
+#
+# If you plan to run scripts *outside* of Blender that require 
+# special parsing or data science packages in the future, list them here.
+
+# (Optional) Uncomment if you need advanced array manipulations outside Blender:
+# numpy==1.26.4
+
+# (Optional) Uncomment if you need to read standard OpenFOAM VTK outputs in Python directly later:
+# pyvista==0.43.0

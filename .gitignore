@@ -1,0 +1,6 @@
+tmp/
+data/
+test_cfmesh_case/
+__pycache__/
+*.pyc
+*.foam
