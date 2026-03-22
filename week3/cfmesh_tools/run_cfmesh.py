@@ -59,7 +59,7 @@ def generate_fields(base_dir, solver_type, nu, inlet_vel):
     """
     Generates or updates fluid properties and boundary conditions.
     """
-    HEADER = r"""/*--------------------------------*- C++ -*----------------------------------*\
+    HEADER = r"""/*--------------------------------*- C++ -*-------------generate---------------------*\
   =========                 |
   \      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
    \    /   O peration     | Website:  https://openfoam.org
