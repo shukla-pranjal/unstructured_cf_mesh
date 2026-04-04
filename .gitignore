@@ -3,4 +3,8 @@ data/
 test_cfmesh_case/
 __pycache__/
 *.pyc
-*.foam
+*.foam*.md
+week5/cfmesh_tools_1.*.zip
+week5/cfmesh_tools_2.0.zip
+week5/cfmesh_tools_2.1.zip
+week5/cfmesh_tools_2.2.zip
