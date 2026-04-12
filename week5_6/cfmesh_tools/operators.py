@@ -354,10 +354,16 @@ class OBJECT_OT_RunSolver(bpy.types.Operator):
             turb_nut=props.turb_nut
         )
         
-        command = f"{source_cmd} && {props.solver_type}"
+        # OpenFOAM 11: simpleFoam is deprecated, use foamRun
+        if props.solver_type == 'simpleFoam':
+            solver_cmd = 'foamRun -solver incompressibleFluid'
+        else:
+            solver_cmd = props.solver_type
+        
+        command = f"{source_cmd} && {solver_cmd}"
         run_command_async(command, case_dir)
         
-        self.report({'INFO'}, f"Started {props.solver_type} in background.")
+        self.report({'INFO'}, f"Started {solver_cmd} in background.")
         return {'FINISHED'}
 
 class OBJECT_OT_LaunchParaView(bpy.types.Operator):
@@ -418,3 +424,366 @@ class OBJECT_OT_LoadResult(bpy.types.Operator):
             set_ui_error("result.stl not found. Run mesh generation first.")
             
         return {'FINISHED'}
+
+class OBJECT_OT_RunCheckMesh(bpy.types.Operator):
+    bl_idname = "object.run_checkmesh"
+    bl_label = "Check Mesh Quality"
+    bl_description = "Runs OpenFOAM checkMesh and displays quality metrics"
+    
+    def execute(self, context):
+        import re
+        props = context.scene.cfmesh_props
+        case_dir = bpy.path.abspath(props.export_dir)
+        
+        if not os.path.isdir(os.path.join(case_dir, "constant", "polyMesh")):
+            self.report({'ERROR'}, "No mesh found. Run 'Generate cfMesh' first.")
+            set_ui_error("No mesh to check. Generate mesh first.")
+            return {'CANCELLED'}
+        
+        clear_ui_status()
+        
+        source_cmd = "source /opt/openfoam11/etc/bashrc"
+        command = f"{source_cmd} && checkMesh"
+        
+        success, output = utils_system.run_cfmesh_command(command, case_dir)
+        
+        # Parse checkMesh output
+        for line in output.split('\n'):
+            line = line.strip()
+            if 'cells:' in line and 'hex' not in line.lower():
+                m = re.search(r'cells:\s*(\d+)', line)
+                if m: props.checkmesh_cells = int(m.group(1))
+            elif 'faces:' in line:
+                m = re.search(r'faces:\s*(\d+)', line)
+                if m: props.checkmesh_faces = int(m.group(1))
+            elif 'points:' in line:
+                m = re.search(r'points:\s*(\d+)', line)
+                if m: props.checkmesh_points = int(m.group(1))
+            elif 'Max non-orthogonality' in line:
+                m = re.search(r'Max non-orthogonality\s*=\s*([\d.]+)', line, re.IGNORECASE)
+                if m: props.checkmesh_non_ortho = float(m.group(1))
+            elif 'Max skewness' in line:
+                m = re.search(r'Max skewness\s*=\s*([\d.]+)', line)
+                if m: props.checkmesh_skewness = float(m.group(1))
+        
+        if 'Mesh OK' in output:
+            props.checkmesh_result = "PASSED"
+            global_state.status_message = "checkMesh: PASSED"
+        elif 'Failed' in output or 'FAILED' in output:
+            props.checkmesh_result = "FAILED"
+            set_ui_error("checkMesh: FAILED — mesh has quality issues")
+        else:
+            props.checkmesh_result = "COMPLETED"
+            global_state.status_message = "checkMesh: Completed"
+        
+        self.report({'INFO'}, f"checkMesh: {props.checkmesh_cells} cells, quality: {props.checkmesh_result}")
+        return {'FINISHED'}
+
+class OBJECT_OT_ShowResiduals(bpy.types.Operator):
+    bl_idname = "object.show_residuals"
+    bl_label = "Parse Solver Log"
+    bl_description = "Reads the solver log and extracts final residual values"
+    
+    def execute(self, context):
+        import re
+        import glob
+        props = context.scene.cfmesh_props
+        case_dir = bpy.path.abspath(props.export_dir)
+        
+        # Find solver log — look for log files or parse stdout saved by our async runner
+        log_content = global_state.last_output
+        
+        if not log_content:
+            self.report({'ERROR'}, "No solver output found. Run the solver first.")
+            set_ui_error("No solver output. Run simulation first.")
+            return {'CANCELLED'}
+        
+        clear_ui_status()
+        
+        # Parse residuals from OpenFOAM output
+        # Format: "Solving for Ux, Initial residual = 0.123, Final residual = 0.00456"
+        residuals = {}
+        iterations = 0
+        
+        for line in log_content.split('\n'):
+            m = re.search(r'Solving for (\w+),.*Final residual = ([\d.e+-]+)', line)
+            if m:
+                field_name = m.group(1)
+                value = float(m.group(2))
+                residuals[field_name] = value
+            
+            # Count time steps
+            if line.strip().startswith('Time ='):
+                iterations += 1
+        
+        # Map to properties
+        props.residual_Ux = residuals.get('Ux', 0.0)
+        props.residual_Uy = residuals.get('Uy', 0.0)
+        props.residual_Uz = residuals.get('Uz', 0.0)
+        props.residual_p = residuals.get('p', 0.0)
+        props.residual_k = residuals.get('k', 0.0)
+        props.residual_omega = residuals.get('omega', residuals.get('epsilon', 0.0))
+        props.solver_iterations = iterations
+        
+        # Determine convergence
+        if not residuals:
+            props.solver_converged = "No Residuals Found"
+            set_ui_error("No residual data in solver output. Solver may not have run.")
+            return {'CANCELLED'}
+        
+        max_residual = max(residuals.values())
+        if max_residual < 1e-4:
+            props.solver_converged = "Converged"
+            global_state.status_message = f"Solver: Converged ({iterations} iterations)"
+        elif max_residual > 1.0:
+            props.solver_converged = "Diverged"
+            set_ui_error(f"Solver DIVERGED — max residual: {max_residual:.2e}")
+        else:
+            props.solver_converged = "In Progress"
+            global_state.status_message = f"Solver: In Progress ({iterations} steps, max res: {max_residual:.2e})"
+        
+        self.report({'INFO'}, f"Residuals parsed: {len(residuals)} fields, {iterations} iterations")
+        return {'FINISHED'}
+
+class OBJECT_OT_ColorByField(bpy.types.Operator):
+    bl_idname = "object.color_by_field"
+    bl_label = "Color Mesh by Field"
+    bl_description = "Applies vertex colors to the mesh based on CFD field data"
+    
+    def execute(self, context):
+        import struct
+        props = context.scene.cfmesh_props
+        case_dir = bpy.path.abspath(props.export_dir)
+        obj = context.active_object
+        
+        # --- Validation ---
+        if not obj or obj.type != 'MESH':
+            self.report({'ERROR'}, "Select a mesh object first (use 'Load Meshed Result').")
+            set_ui_error("Select a mesh object first.")
+            return {'CANCELLED'}
+        
+        if not os.path.isdir(case_dir):
+            self.report({'ERROR'}, "Case directory not found.")
+            set_ui_error("Case directory not found.")
+            return {'CANCELLED'}
+        
+        # Find the latest time directory with field data
+        field_name = props.color_field if props.color_field != 'U_mag' else 'U'
+        time_dirs = []
+        for d in os.listdir(case_dir):
+            try:
+                t = float(d)
+                field_path = os.path.join(case_dir, d, field_name)
+                if os.path.isfile(field_path):
+                    time_dirs.append((t, d))
+            except ValueError:
+                continue
+        
+        if not time_dirs:
+            # Also check 0/ directory
+            field_path = os.path.join(case_dir, "0", field_name)
+            if os.path.isfile(field_path):
+                time_dirs.append((0.0, "0"))
+        
+        if not time_dirs:
+            self.report({'ERROR'}, f"No field data '{field_name}' found. Run solver first.")
+            set_ui_error(f"No '{field_name}' field data. Run solver first.")
+            return {'CANCELLED'}
+        
+        # Use latest time step
+        time_dirs.sort(key=lambda x: x[0])
+        latest_dir = time_dirs[-1][1]
+        field_path = os.path.join(case_dir, latest_dir, field_name)
+        
+        clear_ui_status()
+        
+        # Parse the OpenFOAM field file for internalField values
+        try:
+            values = self.parse_foam_field(field_path, props.color_field)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to parse field: {e}")
+            set_ui_error(f"Field parse error: {str(e)[:50]}")
+            return {'CANCELLED'}
+        
+        if not values:
+            self.report({'ERROR'}, "Could not extract field values.")
+            set_ui_error("No field values found in file.")
+            return {'CANCELLED'}
+        
+        # Apply vertex colors
+        try:
+            self.apply_vertex_colors(obj, values, props.color_field)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to apply colors: {e}")
+            set_ui_error(f"Color error: {str(e)[:50]}")
+            return {'CANCELLED'}
+        
+        # Switch to Material Preview so colors are visible
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                for space in area.spaces:
+                    if space.type == 'VIEW_3D':
+                        space.shading.type = 'MATERIAL'
+        
+        field_label = "Pressure" if props.color_field == 'p' else "Velocity Magnitude"
+        global_state.status_message = f"Colored by {field_label} (t={latest_dir})"
+        self.report({'INFO'}, f"Mesh colored by {field_label} from time={latest_dir}")
+        return {'FINISHED'}
+    
+    def parse_foam_field(self, filepath, field_type):
+        """Parse an OpenFOAM field file and extract internalField values."""
+        import re
+        
+        with open(filepath, 'r') as f:
+            content = f.read()
+        
+        values = []
+        
+        # Find the internalField section
+        if 'nonuniform' in content:
+            # OF11 format:
+            #   internalField   nonuniform List<scalar> 
+            #   17228
+            #   (
+            #   9.38424
+            #   ...
+            # OR for vectors:
+            #   internalField   nonuniform List<vector> 
+            #   17228
+            #   (
+            #   (6.92443 -0.112326 -0.113665)
+            
+            # Find the opening parenthesis after the count
+            m = re.search(r'internalField\s+nonuniform\s+List<(?:scalar|vector)>\s*\n(\d+)\s*\n\(', content)
+            if m:
+                count = int(m.group(1))
+                start = m.end()
+                data_section = content[start:]
+                
+                lines = data_section.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    
+                    # Stop at closing parenthesis
+                    if line == ')' or line == ');':
+                        break
+                    
+                    if not line:
+                        continue
+                    
+                    try:
+                        if field_type == 'p':
+                            # Scalar: just a number per line
+                            val = float(line)
+                            values.append(val)
+                        elif field_type == 'U_mag':
+                            # Vector: (Ux Uy Uz) — strip parens
+                            cleaned = line.strip('(').strip(')')
+                            parts = cleaned.split()
+                            if len(parts) == 3:
+                                ux, uy, uz = float(parts[0]), float(parts[1]), float(parts[2])
+                                values.append(math.sqrt(ux**2 + uy**2 + uz**2))
+                    except ValueError:
+                        continue
+                    
+                    if len(values) >= count:
+                        break
+        
+        elif 'uniform' in content:
+            # Uniform field — single value for all cells
+            if field_type == 'p':
+                m = re.search(r'internalField\s+uniform\s+([-\d.e+-]+)', content)
+                if m:
+                    values = [float(m.group(1))] * 100
+            elif field_type == 'U_mag':
+                m = re.search(r'internalField\s+uniform\s+\(([-\d.e+\-\s]+)\)', content)
+                if m:
+                    parts = m.group(1).split()
+                    if len(parts) == 3:
+                        mag = math.sqrt(sum(float(x)**2 for x in parts))
+                        values = [mag] * 100
+        
+        return values
+    
+    def apply_vertex_colors(self, obj, values, field_type):
+        """Apply a color gradient to mesh vertices based on field values."""
+        mesh = obj.data
+        
+        # Create or get vertex color layer
+        color_layer_name = f"CFD_{field_type}"
+        if color_layer_name not in mesh.color_attributes:
+            mesh.color_attributes.new(name=color_layer_name, type='FLOAT_COLOR', domain='CORNER')
+        
+        color_layer = mesh.color_attributes[color_layer_name]
+        mesh.color_attributes.active_color = color_layer
+        
+        # Normalize values to 0-1 range
+        if len(values) < 2:
+            return
+            
+        vmin = min(values)
+        vmax = max(values)
+        val_range = vmax - vmin if vmax != vmin else 1.0
+        
+        # Map values to vertices (use as many as we have, cycling if needed)
+        num_verts = len(mesh.vertices)
+        vert_values = []
+        for i in range(num_verts):
+            idx = i % len(values)
+            normalized = (values[idx] - vmin) / val_range
+            vert_values.append(normalized)
+        
+        # Apply colors per face corner (loop)
+        for poly in mesh.polygons:
+            for loop_idx in poly.loop_indices:
+                vert_idx = mesh.loops[loop_idx].vertex_index
+                t = vert_values[vert_idx] if vert_idx < len(vert_values) else 0.5
+                
+                # Blue → Cyan → Green → Yellow → Red (jet colormap)
+                r, g, b = self.jet_colormap(t)
+                color_layer.data[loop_idx].color = (r, g, b, 1.0)
+        
+        # Create/update material to show vertex colors
+        mat_name = "CFD_Visualization"
+        mat = bpy.data.materials.get(mat_name)
+        if mat is None:
+            mat = bpy.data.materials.new(name=mat_name)
+        mat.use_nodes = True
+        
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        nodes.clear()
+        
+        # Vertex Color -> Principled BSDF -> Output
+        output_node = nodes.new('ShaderNodeOutputMaterial')
+        output_node.location = (400, 0)
+        
+        bsdf_node = nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf_node.location = (200, 0)
+        
+        vcol_node = nodes.new('ShaderNodeVertexColor')
+        vcol_node.location = (0, 0)
+        vcol_node.layer_name = color_layer_name
+        
+        links.new(vcol_node.outputs['Color'], bsdf_node.inputs['Base Color'])
+        links.new(bsdf_node.outputs['BSDF'], output_node.inputs['Surface'])
+        
+        # Assign material to object
+        if obj.data.materials:
+            obj.data.materials[0] = mat
+        else:
+            obj.data.materials.append(mat)
+    
+    @staticmethod
+    def jet_colormap(t):
+        """Convert 0-1 value to RGB using jet colormap (Blue→Cyan→Green→Yellow→Red)."""
+        t = max(0.0, min(1.0, t))
+        if t < 0.25:
+            r, g, b = 0.0, t * 4, 1.0
+        elif t < 0.5:
+            r, g, b = 0.0, 1.0, 1.0 - (t - 0.25) * 4
+        elif t < 0.75:
+            r, g, b = (t - 0.5) * 4, 1.0, 0.0
+        else:
+            r, g, b = 1.0, 1.0 - (t - 0.75) * 4, 0.0
+        return r, g, b

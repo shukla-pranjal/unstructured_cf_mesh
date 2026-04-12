@@ -17,7 +17,10 @@ from .operators import (
     OBJECT_OT_GenerateCFMesh,
     OBJECT_OT_RunSolver,
     OBJECT_OT_LaunchParaView,
-    OBJECT_OT_LoadResult
+    OBJECT_OT_LoadResult,
+    OBJECT_OT_RunCheckMesh,
+    OBJECT_OT_ShowResiduals,
+    OBJECT_OT_ColorByField
 )
 from .ui import (
     VIEW3D_PT_CFMeshPanel,
@@ -33,6 +36,9 @@ classes = (
     OBJECT_OT_RunSolver,
     OBJECT_OT_LaunchParaView,
     OBJECT_OT_LoadResult,
+    OBJECT_OT_RunCheckMesh,
+    OBJECT_OT_ShowResiduals,
+    OBJECT_OT_ColorByField,
     VIEW3D_PT_CFMeshPanel,
     VIEW3D_PT_MeshSettings,
     VIEW3D_PT_SolverSettings,

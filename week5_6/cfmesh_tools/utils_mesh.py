@@ -83,19 +83,32 @@ boundaryField
 """
     write_foam_file(os.path.join(base_dir, "0", "p"), p_CONTENT)
 
-    # 3. constant/transportProperties
-    TRANSPORT_CONTENT = f"""{HEADER}
+    # 3. constant/physicalProperties and transportProperties (for OF11 and old versions)
+    TRANSPORT_CONTENT_PHYS = f"""{HEADER}
 FoamFile
 {{
     format      ascii;
     class       dictionary;
-    location    "constant";
-    object      transportProperties;
+    object      physicalProperties;
 }}
-transportModel  constant;
+
+viscosityModel  constant;
 nu              [0 2 -1 0 0 0 0] {nu};
 """
-    write_foam_file(os.path.join(base_dir, "constant", "transportProperties"), TRANSPORT_CONTENT)
+    write_foam_file(os.path.join(base_dir, "constant", "physicalProperties"), TRANSPORT_CONTENT_PHYS)
+    
+    TRANSPORT_CONTENT_TRANS = f"""{HEADER}
+FoamFile
+{{
+    format      ascii;
+    class       dictionary;
+    object      transportProperties;
+}}
+
+viscosityModel  constant;
+nu              [0 2 -1 0 0 0 0] {nu};
+"""
+    write_foam_file(os.path.join(base_dir, "constant", "transportProperties"), TRANSPORT_CONTENT_TRANS)
 
     # 4. system/controlDict
     CONTROL_CONTENT = f"""{HEADER}

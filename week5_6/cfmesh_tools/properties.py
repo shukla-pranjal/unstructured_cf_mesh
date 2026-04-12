@@ -178,3 +178,31 @@ class CFMeshProperties(bpy.types.PropertyGroup):
         name="Is Running",
         default=False
     )
+
+    # --- Post-Processing: checkMesh results ---
+    checkmesh_cells: bpy.props.IntProperty(name="Cells", default=0)
+    checkmesh_faces: bpy.props.IntProperty(name="Faces", default=0)
+    checkmesh_points: bpy.props.IntProperty(name="Points", default=0)
+    checkmesh_non_ortho: bpy.props.FloatProperty(name="Max Non-Ortho", default=0.0)
+    checkmesh_skewness: bpy.props.FloatProperty(name="Max Skewness", default=0.0)
+    checkmesh_result: bpy.props.StringProperty(name="Mesh Quality", default="Not checked")
+    
+    # --- Post-Processing: Solver residuals ---
+    residual_Ux: bpy.props.FloatProperty(name="Ux Residual", default=0.0)
+    residual_Uy: bpy.props.FloatProperty(name="Uy Residual", default=0.0)
+    residual_Uz: bpy.props.FloatProperty(name="Uz Residual", default=0.0)
+    residual_p: bpy.props.FloatProperty(name="p Residual", default=0.0)
+    residual_k: bpy.props.FloatProperty(name="k Residual", default=0.0)
+    residual_omega: bpy.props.FloatProperty(name="omega Residual", default=0.0)
+    solver_converged: bpy.props.StringProperty(name="Solver Status", default="Not run")
+    solver_iterations: bpy.props.IntProperty(name="Iterations", default=0)
+
+    # --- Post-Processing: Color visualization ---
+    color_field: bpy.props.EnumProperty(
+        name="Color Field",
+        items=[
+            ('p', 'Pressure (p)', 'Color mesh by pressure field'),
+            ('U_mag', 'Velocity Magnitude', 'Color mesh by velocity magnitude'),
+        ],
+        default='p'
+    )

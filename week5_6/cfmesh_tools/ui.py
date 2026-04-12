@@ -115,5 +115,65 @@ class VIEW3D_PT_PostProcess(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        props = context.scene.cfmesh_props
+        
+        # --- Mesh Quality ---
+        layout.operator("object.run_checkmesh", icon='CHECKMARK')
+        if props.checkmesh_result != "Not checked":
+            qbox = layout.box()
+            qbox.enabled = False
+            
+            if props.checkmesh_result == "PASSED":
+                qbox.label(text="Mesh Quality: PASSED", icon='INFO')
+            elif props.checkmesh_result == "FAILED":
+                qbox.label(text="Mesh Quality: FAILED", icon='ERROR')
+            else:
+                qbox.label(text=f"Mesh Quality: {props.checkmesh_result}", icon='INFO')
+            
+            col = qbox.column(align=True)
+            col.prop(props, "checkmesh_cells", text="Cells")
+            col.prop(props, "checkmesh_faces", text="Faces")
+            col.prop(props, "checkmesh_points", text="Points")
+            col.prop(props, "checkmesh_non_ortho", text="Max Non-Ortho")
+            col.prop(props, "checkmesh_skewness", text="Max Skewness")
+        
+        layout.separator()
+        
+        # --- Solver Residuals ---
+        layout.operator("object.show_residuals", icon='FCURVE')
+        if props.solver_converged != "Not run":
+            rbox = layout.box()
+            rbox.enabled = False
+            
+            if props.solver_converged == "Converged":
+                rbox.label(text=f"Status: {props.solver_converged}", icon='INFO')
+            elif props.solver_converged == "Diverged":
+                rbox.label(text=f"Status: {props.solver_converged}", icon='ERROR')
+            else:
+                rbox.label(text=f"Status: {props.solver_converged}", icon='TIME')
+            
+            rbox.prop(props, "solver_iterations", text="Time Steps")
+            
+            col = rbox.column(align=True)
+            col.prop(props, "residual_Ux", text="Ux")
+            col.prop(props, "residual_Uy", text="Uy")
+            col.prop(props, "residual_Uz", text="Uz")
+            col.prop(props, "residual_p", text="p")
+            if props.residual_k > 0:
+                col.prop(props, "residual_k", text="k")
+            if props.residual_omega > 0:
+                col.prop(props, "residual_omega", text="omega/eps")
+        
+        layout.separator()
+        
+        # --- Field Visualization ---
+        vbox = layout.box()
+        vbox.label(text="Field Visualization:", icon='SHADING_RENDERED')
+        vbox.prop(props, "color_field")
+        vbox.operator("object.color_by_field", icon='BRUSH_DATA')
+        
+        layout.separator()
+        
+        # --- Existing buttons ---
         layout.operator("object.load_result", icon='IMPORT')
         layout.operator("object.launch_paraview", icon='OUTLINER_OB_FORCE_FIELD')
