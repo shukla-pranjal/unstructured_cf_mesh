@@ -1,0 +1,13 @@
+schema_version = "1.0.0"
+id = "cfmesh_tools"
+version = "2.3.0"
+name = "cfMesh Tools"
+tagline = "Blender UI for interacting with OpenFOAM cfMesh. Refactored into modules."
+maintainer = "FOSSEE"
+type = "add-on"
+website = "https://example.com"
+tags = ["Development"]
+blender_version_min = "4.0.0"
+license = [
+  "SPDX:GPL-2.0-or-later",
+]
