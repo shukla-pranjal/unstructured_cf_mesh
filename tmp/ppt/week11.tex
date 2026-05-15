@@ -1,0 +1,318 @@
+% compile with XeLaTeX
+\documentclass[dvipsnames,mathserif]{beamer}
+\setbeamertemplate{footline}[frame number]
+\setbeamercolor{footline}{fg=black}
+\setbeamerfont{footline}{series=\bfseries}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{booktabs}
+
+\usetheme{Darmstadt}
+
+\makeatletter
+\newcommand{\RTListe}{\raggedleft\rightskip\leftm}
+\newcommand{\leftm}{\@totalleftmargin}
+\makeatother
+
+\setbeamertemplate{frametitle}
+{\vspace*{-1mm}
+\nointerlineskip
+    \begin{beamercolorbox}[sep=0.3cm,ht=2.2em,wd=\paperwidth]{frametitle}
+        \vbox{}\vskip-2ex%
+        \strut\hskip1ex\insertframetitle\strut
+        \vskip-0.8ex%
+    \end{beamercolorbox}
+}
+\makeatletter
+\setbeamertemplate{subsection in toc}
+{\leavevmode\rightskip=5ex%
+\llap{\raise0.1ex\beamer@usesphere{subsection number projected}{bigsphere}\kern1ex}%
+\inserttocsubsection\par%
+}
+\makeatother
+
+\setbeamertemplate{itemize item}{\scriptsize\raise1.25pt\hbox{\donotcoloroutermaths$\blacktriangleleft$}} 
+
+\defbeamertemplate{enumerate item}{square2}
+{\LR{
+    \hbox{%
+    \usebeamerfont*{item projected}%
+    \usebeamercolor[bg]{item projected}%
+    \vrule width2.25ex height1.85ex depth.4ex%
+    \hskip-2.25ex%
+    \hbox to2.25ex{%
+    \hfil%
+    {\color{fg}\insertenumlabel}%
+    \hfil}%
+}%
+}}
+
+\setbeamertemplate{enumerate item}[square2]
+\setbeamertemplate{navigation symbols}{}
+
+% FOSSEE LOGO ON EVERY PAGE
+\logo{\includegraphics[height=0.9cm]{fossee_logo.png}}
+
+\setbeamertemplate{caption}[numbered]
+\begin{document}
+
+\rightskip\rightmargin
+\title{\textbf{Unstructured Mesh Generation} \\ Technical Progress Report (Week 11)}
+\author{\Large \textbf{Pranjal Kumar Shukla}}
+\institute{\large\textbf{FOSSEE Internship -- Progress Report}\\[4pt]
+SCAI School\\[2pt]
+VIT Bhopal University}
+\footnotesize{\date{\today}}
+
+
+\begin{frame}
+\maketitle
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 1. WEEK 11 FOCUS
+%% ─────────────────────────────────────────
+\section{Week 11 Focus}
+\begin{frame}{Week 11 Focus: Stability, UX \& Correctness}
+    \begin{alertblock}{Objective}
+        No new features added this week. Full focus on \textbf{improving robustness, fixing bugs, and enhancing the user experience} of existing tools.
+    \end{alertblock}
+    \vspace{0.3cm}
+    \textbf{Key improvement areas:}
+    \begin{itemize}
+        \item Geometric validation and smart error messages
+        \item Performance optimization (no UI freezes)
+        \item Metric unit display on all length inputs
+        \item Stable multi-frame CFD animation pipeline
+    \end{itemize}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 2. GEOMETRIC VALIDATION
+%% ─────────────────────────────────────────
+\section{Improvements}
+\begin{frame}{1. Geometric Validation for Trailing Edge}
+    \textbf{Problem:} Trailing Edge Refinement was silently applied to all objects, including spheres -- where it is physically meaningless.
+    \vspace{0.2cm}
+    \begin{block}{Solution: \texttt{bmesh} Edge Scan}
+        \begin{itemize}
+            \item Scans all edges using the \texttt{bmesh} API before meshing
+            \item Computes face-face angle for each edge
+            \item If \textbf{no edge exceeds 30°}: shows a clear error message
+            \item Allows objects with \textbf{both curved and sharp edges} (e.g.\ cylinders with rims)
+        \end{itemize}
+    \end{block}
+    \vspace{0.1cm}
+    \textit{``Trailing edge refinement requires sharp edges. Your geometry appears completely smooth (e.g.\ a sphere). Please disable this feature.''}
+\end{frame}
+
+\begin{frame}{2. Non-Manifold Geometry Pre-Check}
+    \textbf{Problem:} cfMesh silently fails or produces corrupt meshes when the input STL has holes or self-intersections.
+    \vspace{0.3cm}
+    \begin{block}{Solution: Pre-Meshing Validation}
+        \begin{itemize}
+            \item \texttt{bmesh} scan detects non-manifold edges before export
+            \item Reports exact edge count: \textit{``X non-manifold edges detected -- please fix in Edit Mode''}
+            \item Non-blocking warning (cfMesh may still succeed on simple cases)
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+\begin{frame}{3. Performance: Triangulation Optimization}
+    \textbf{Problem:} Previous implementation used \texttt{bpy.ops.object.modifier\_add()} in a loop, triggering a full Blender dependency graph rebuild per object. This caused \textbf{UI freezes} on complex meshes.
+    \vspace{0.3cm}
+    \begin{block}{Solution: Low-Level \texttt{bmesh} Operations}
+        \begin{itemize}
+            \item Replaced with \texttt{bmesh.ops.triangulate(bm, faces=bm.faces[:])}
+            \item Operates directly on mesh data -- no graph rebuilds
+            \item Significantly faster on dense meshes
+        \end{itemize}
+    \end{block}
+    \vspace{0.1cm}
+    \begin{center}
+        \small
+        \begin{tabular}{lcc}
+            \toprule
+            \textbf{Method} & \textbf{Graph Rebuild} & \textbf{Speed} \\
+            \midrule
+            \texttt{bpy.ops} loop & Per object & Slow \\
+            \texttt{bmesh.ops} & None & Fast \\
+            \bottomrule
+        \end{tabular}
+    \end{center}
+\end{frame}
+
+\begin{frame}{4. Beginner-Friendly Error Messages}
+    \textbf{Problem:} Errors surfaced raw Python exceptions, which are meaningless to non-developers.
+    \vspace{0.2cm}
+    \begin{block}{Improved Exception Handling (3 files)}
+        \begin{itemize}
+            \item \textbf{ops\_meshing.py}: \texttt{PermissionError} $\rightarrow$ ``Check write permissions''; \texttt{MemoryError} $\rightarrow$ ``Increase cell size''
+            \item \textbf{ops\_geometry.py}: STL import errors now guide users to valid ASCII/Binary STL files
+            \item \textbf{ops\_inspect.py}: VTU parse error now says ``Did you run the mesher first?''
+            \item \textbf{OpenFOAM guard}: Checks if \texttt{cartesianMesh} is accessible before starting any operation
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 3. UI IMPROVEMENTS
+%% ─────────────────────────────────────────
+\section{UI Improvements}
+\begin{frame}{5. Metric Units \& Live Estimators in UI}
+    \begin{columns}
+        \column{0.5\textwidth}
+        \textbf{Metric Units}
+        \begin{itemize}
+            \item Added \texttt{subtype=`DISTANCE'} to all length-based properties
+            \item Blender now auto-displays ``m'', ``cm'', ``mm'' next to inputs
+            \item Applies to: cell size, layer thickness, characteristic length, trailing edge size
+        \end{itemize}
+        \column{0.5\textwidth}
+        \textbf{Live Cell Count Estimator}
+        \begin{itemize}
+            \item Before meshing: displays \textit{``Est. Cells: $\sim$5,000''}
+            \item Formula: $n \approx V_{\text{bbox}} / dx^3$
+            \item Warns in red if $> 2\times10^6$ cells
+            \item Helps users avoid out-of-memory crashes
+        \end{itemize}
+    \end{columns}
+\end{frame}
+
+\begin{frame}{6. Courant Number Warning System}
+    \textbf{Problem:} icoFoam diverges when the Courant number $\text{Co} = U \cdot \Delta t / \Delta x > 1$. Users had no feedback before running.
+    \vspace{0.2cm}
+    \begin{block}{Live Courant Checker (Physics \& Solver Panel)}
+        \[
+            \text{Co} = \frac{U_{\text{mag}} \cdot \Delta t}{\Delta x}, \quad \Delta t_{\text{safe}} = \frac{0.5 \cdot \Delta x}{U_{\text{mag}}}
+        \]
+        \begin{itemize}
+            \item Updates live as you change velocity, $\Delta t$, or cell size
+            \item \textcolor{green}{\textbf{Green}}: Co $< 0.5$ (stable)
+            \item \textcolor{orange}{\textbf{Orange}}: $0.5 <$ Co $< 1.0$ (borderline)
+            \item \textcolor{red}{\textbf{Red alert}}: Co $\geq 1$ (solver WILL diverge) + shows safe $\Delta t$
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+\begin{frame}{7. Estimated Animation Frames in Time Controls}
+    \textbf{Problem:} Users did not know how many output files would be written before running a simulation.
+    \vspace{0.2cm}
+    \begin{block}{Live Frame Count Preview}
+        \textbf{icoFoam} (adjustableRunTime):
+        \[
+            n_{\text{frames}} = \texttt{write\_interval} + 1
+        \]
+        \textbf{simpleFoam} (step-based):
+        \[
+            n_{\text{frames}} = \lfloor \texttt{max\_iterations} / \texttt{write\_interval} \rfloor
+        \]
+        \begin{itemize}
+            \item Shown live inside the Time \& Interval box
+            \item Warns if 0 or 1 frame (too coarse interval)
+            \item Warns if $>500$ frames (disk space risk)
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 4. ANIMATION PIPELINE FIXES
+%% ─────────────────────────────────────────
+\section{Animation \& Post-Processing}
+\begin{frame}{8. Animation Pipeline: Multi-Frame Fix}
+    \textbf{Problem:} Animation showed only 1 visible frame regardless of time steps.
+    \vspace{0.2cm}
+    \begin{block}{Root Cause}
+        Old keyframe logic set each mesh visible for exactly 1 Blender frame, then immediately hidden again:
+        \textit{frame N-1: hidden, frame N: visible, frame N+1: hidden}
+    \end{block}
+    \begin{block}{Fix}
+        \begin{itemize}
+            \item Each mesh visible from its frame until the \textbf{next one appears}
+            \item \texttt{CONSTANT} keyframe interpolation (no blending between steps)
+            \item Compatible with Blender 3.x / 4.x / 5.x action API
+            \item Last frame stays visible permanently
+        \end{itemize}
+    \end{block}
+\end{frame}
+
+\begin{frame}{9. Parallel Run Reconstruction (\texttt{reconstructPar})}
+    \textbf{Problem:} When using $>1$ CPU cores, OpenFOAM writes results to \texttt{processor0/}, \texttt{processor1/}..., \textbf{not} the main case directory. \texttt{foamToVTK} saw only the initial condition, producing just 1--2 frames.
+    \vspace{0.2cm}
+    \begin{block}{Automatic Fix in ``Color Boundary Mesh''}
+        \begin{enumerate}
+            \item Detects \texttt{processor*} directories automatically
+            \item Runs \texttt{reconstructPar -newTimes} before \texttt{foamToVTK}
+            \item Only merges new time steps (fast on re-run)
+            \item Falls back gracefully with a warning if reconstruction fails
+        \end{enumerate}
+    \end{block}
+    \textbf{Result:} 21 frames correctly generated from 20 write intervals.
+\end{frame}
+
+\begin{frame}{10. Other Post-Processing Improvements}
+    \begin{itemize}
+        \item \textbf{Auto Shade Smooth}: Imported result STL is automatically smooth-shaded, eliminating the ``faceted sphere'' appearance without manual steps
+        \item \textbf{Mesh Quality Icons}: Non-ortho, skewness, and aspect ratio fields each display {\color{green}$\checkmark$} / {\color{orange}$\bigcirc$} / {\color{red}$\times$} icons based on OpenFOAM thresholds
+        \item \textbf{Octree Exact-Multiple Bug}: \texttt{maxCellSize} is nudged by $10^{-5}$ relative epsilon before writing \texttt{meshDict}, preventing the \textit{``0 cells in mesh''} crash
+        \item \textbf{Live Log Tail}: Status box updates in real-time with the last cfMesh/OpenFOAM output line during execution
+    \end{itemize}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 5. TIMELINE
+%% ─────────────────────────────────────────
+\section{Timeline}
+\begin{frame}{Updated Timeline \& Milestones}
+    \begin{table}
+    \centering
+    \footnotesize
+    \begin{tabular}{|c|p{6.5cm}|l|}
+    \hline
+    \textbf{Week} & \textbf{Task} & \textbf{Status} \\ \hline
+    4 & Turbulence models (RANS), Exception handling & \textcolor{green}{\textbf{Done}} \\ \hline
+    5 -- 6 & STL Importer, Jet Colormaps, Residuals \& Y+ & \textcolor{green}{\textbf{Done}} \\ \hline
+    7 & System file opener, Custom liquid presets \& Smart UI & \textcolor{green}{\textbf{Done}} \\ \hline
+    8 & OpenFOAM 2412 migration, Modular Architecture & \textcolor{green}{\textbf{Done}} \\ \hline
+    9 -- 10 & Real-time Vis, VTK Slices, icoFoam \& simpleFoam & \textcolor{green}{\textbf{Done}} \\ \hline
+    \textbf{11} & \textbf{Stability, UX Polish, Animation, Bug Fixes} & \textcolor{green}{\textbf{Done}} \\ \hline
+    12 & Final Documentation \& Project Handover & Upcoming \\ \hline
+    \end{tabular}
+    \end{table}
+\end{frame}
+
+%% ─────────────────────────────────────────
+%% 6. SUMMARY
+%% ─────────────────────────────────────────
+\section{Summary}
+\begin{frame}{Week 11 Summary}
+    \begin{center}
+        \small
+        \begin{tabular}{p{4.2cm}p{5.8cm}}
+            \toprule
+            \textbf{Improvement} & \textbf{Outcome} \\
+            \midrule
+            Geometric Validation & Trailing edge only on sharp-edged geometry \\
+            Non-Manifold Check & Warns before meshing broken STL \\
+            Triangulation Speed & No UI freeze on large meshes \\
+            Beginner Error Messages & Plain-English guidance instead of Python tracebacks \\
+            Metric Units & ``m'' / ``mm'' shown on all distance inputs \\
+            Courant Warning & Live Co number; prevents icoFoam divergence \\
+            Frame Count Estimator & Accurate preview in Time \& Interval panel \\
+            Animation Fix & All time steps visible; CONSTANT keyframes \\
+            reconstructPar & Parallel runs now produce full animation \\
+            Octree Bug Fix & No more ``0 cells'' crash \\
+            \bottomrule
+        \end{tabular}
+    \end{center}
+\end{frame}
+
+\begin{frame}
+    \begin{center}
+        \Huge \textbf{Thank You!} \\
+        \vspace{0.5cm}
+        \large End of Week 11 Report
+    \end{center}
+\end{frame}
+
+\end{document}
