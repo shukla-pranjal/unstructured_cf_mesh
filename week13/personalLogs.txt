@@ -1,0 +1,23 @@
+
+
+4 primary objective has been full filled
+
+Scope of adding any new feature , even upgrading is less
+
+Now mass testing, should be done
+
+Still new feature to be add
+ -> can make mod
+ -> week 8 is done global , why not make it approachable thoughout
+
+
+
+
+Testing ->
+    Logical thinking, each feature need , 
+
+    Shapes can be implement
+        -> Air foil
+        -> STLs (Shapes)
+        -> Sphere
+        -> Hollow shapes

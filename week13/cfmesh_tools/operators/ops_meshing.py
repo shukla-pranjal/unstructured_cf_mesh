@@ -5,6 +5,21 @@ from ..properties import global_state
 from .. import utils_mesh
 
 
+def _sanitize_patch_name(name: str) -> str:
+    """Return a valid OpenFOAM patch name.
+
+    Rules:
+    - Replace spaces and hyphens with underscores.
+    - Prefix 'p_' if the first character is a digit  (OpenFOAM boundary
+      parser reads a leading digit as the patch-count integer and then
+      fails on the rest of the name).
+    """
+    name = name.replace(' ', '_').replace('-', '_')
+    if name and name[0].isdigit():
+        name = 'p_' + name
+    return name
+
+
 
 class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
     bl_idname = "object.generate_cfmesh"
@@ -66,28 +81,54 @@ class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
             return {'CANCELLED'}
         
         # --- Validation: Cell size sanity ---
-        if props.base_cell_size < 0.01:
-            self.report({'ERROR'}, f"Cell size {props.base_cell_size} is too small. This would generate millions of cells. Use >= 0.01.")
-            set_ui_error(f"Cell size {props.base_cell_size} too small (min 0.01).")
+        # Dynamically compute minimum safe cell size based on geometry (1/1000 of max dim)
+        import math as _math
+        bb_q = obj.bound_box
+        xs_q = [v[0] for v in bb_q]; ys_q = [v[1] for v in bb_q]; zs_q = [v[2] for v in bb_q]
+        max_dim = max(
+            max(xs_q)-min(xs_q),
+            max(ys_q)-min(ys_q),
+            max(zs_q)-min(zs_q)
+        )
+        min_sensible = max(0.001, max_dim / 1000.0)
+        if props.base_cell_size < min_sensible:
+            self.report({'ERROR'},
+                f"Cell size {props.base_cell_size:.4f} m is dangerously small for this geometry "
+                f"({max_dim:.1f} m). "
+                f"Minimum recommended: {min_sensible:.4f} m (1/1000 of longest dimension). "
+                f"This would generate millions of cells."
+            )
+            set_ui_error(f"Cell size {props.base_cell_size:.4f} m too small. Min recommended: {min_sensible:.4f} m")
             return {'CANCELLED'}
 
-        if props.base_cell_size > 5.0:
-            self.report({'WARNING'}, "Cell size is very large — the mesh may be too coarse to capture geometry.")
+        if props.base_cell_size > max_dim * 0.9:
+            self.report({'WARNING'},
+                f"Cell size {props.base_cell_size:.2f} m is larger than 90% of the geometry ({max_dim:.1f} m). "
+                "Mesh may be too coarse to capture any features."
+            )
 
-        # --- Cell Count Estimator ---
-        import math as _math
-        bb = obj.bound_box
-        xs = [v[0] for v in bb]; ys = [v[1] for v in bb]; zs = [v[2] for v in bb]
-        vol = (max(xs)-min(xs)) * (max(ys)-min(ys)) * (max(zs)-min(zs))
-        dx = props.base_cell_size
-        est = int(vol / (dx**3)) if dx > 0 else 0
+        # --- Cell Count Estimator (re-uses same logic as live UI estimator) ---
+        from ..properties import _compute_cell_estimate
+        est, explosion_msg = _compute_cell_estimate(props)
         props.est_cell_count = est
-        if est > 2_000_000:
+        props.cell_explosion_message = explosion_msg
+
+        # --- HARD BLOCK: Prevent Cell Explosion ---
+        if est > 5_000_000:
+            # Build human-readable recommendation block
+            lines = explosion_msg.split('\n') if explosion_msg else [f"~{est:,} cells exceeds the 5M limit."]
+            msg = " | ".join(l.strip() for l in lines if l.strip())
+            self.report({'ERROR'}, msg)
+            set_ui_error(f"Cell Explosion! (~{est:,} cells) — see panel for fix suggestions")
+            return {'CANCELLED'}
+            
+        elif est > 2_000_000:
             self.report({'WARNING'},
                 f"Estimated ~{est:,} cells. This may take a long time and use a lot of memory. "
-                "Consider increasing the Base Cell Size.")
+                "Consider increasing the Base or Box Cell Size.")
         elif est > 0:
-            self.report({'INFO'}, f"Estimated ~{est:,} cells based on bounding box volume.")
+            self.report({'INFO'}, f"Estimated ~{est:,} cells based on volume.")
+
         
         # --- Validation: Boundary layer params ---
         if props.boundary_layers > 10:
@@ -132,6 +173,56 @@ class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
                 return {'CANCELLED'}
             
             edge_refs = [{"name": props.trailing_edge_patch_name, "cell_size": props.trailing_edge_cell_size}] if props.trailing_edge_enabled else []
+            
+            box_refs = []
+            for b in props.box_refinements:
+                box_refs.append({
+                    "min": b.min_bounds,
+                    "max": b.max_bounds,
+                    "cell_size": b.cell_size
+                })
+                
+            tri_surface_dir = os.path.join(case_dir, "constant", "triSurface")
+            os.makedirs(tri_surface_dir, exist_ok=True)
+            
+            surface_refs = []
+            for s in props.surface_refinements:
+                if not s.ref_object:
+                    self.report({'ERROR'}, f"Surface Refinement '{s.name}' is missing an object! Please select an object or remove the refinement.")
+                    set_ui_error(f"Missing object in '{s.name}'")
+                    return {'CANCELLED'}
+                if s.ref_object.type != 'MESH':
+                    self.report({'ERROR'}, f"Surface Refinement '{s.name}' uses a non-mesh object. Please select a 3D Mesh.")
+                    set_ui_error(f"Invalid object type in '{s.name}'")
+                    return {'CANCELLED'}
+                    
+                filename = f"{_sanitize_patch_name(s.ref_object.name)}.stl"
+                bpy.ops.object.select_all(action='DESELECT')
+                s.ref_object.select_set(True)
+                context.view_layer.objects.active = s.ref_object
+                bpy.ops.wm.stl_export(
+                    filepath=os.path.join(tri_surface_dir, filename),
+                    export_selected_objects=True,
+                    global_scale=1.0,
+                    ascii_format=True
+                )
+                surface_refs.append({
+                    "name": _sanitize_patch_name(s.name),
+                    "file": filename,
+                    "cell_size": s.cell_size,
+                    "thickness": s.thickness
+                })
+                    
+            cylinder_refs = []
+            for c in props.cylinder_refinements:
+                cylinder_refs.append({
+                    "name": c.name.replace(' ', '_'),
+                    "p1": c.p1,
+                    "p2": c.p2,
+                    "radius": c.radius,
+                    "cell_size": c.cell_size
+                })
+
             success = utils_mesh.create_case_structure(
                 base_dir=case_dir,
                 cell_size=props.base_cell_size,
@@ -141,6 +232,9 @@ class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
                 cpu_cores=props.cpu_cores,
                 boundary_patches=props.boundary_patches,
                 edge_refinements=edge_refs,
+                box_refinements=box_refs,
+                surface_refinements=surface_refs,
+                cylinder_refinements=cylinder_refs,
                 improve_quality=props.improve_mesh_quality,
                 layer_optimise=props.layer_optimise,
                 layer_max_iter=props.layer_max_iter
@@ -225,7 +319,7 @@ class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
             with open(stl_path, 'w') as outfile:
                 for f in os.listdir(temp_stl_dir):
                     if f.endswith('.stl'):
-                        obj_name = os.path.splitext(f)[0]
+                        obj_name = _sanitize_patch_name(os.path.splitext(f)[0])
                         with open(os.path.join(temp_stl_dir, f), 'r') as infile:
                             first_line = True
                             for line in infile:
@@ -278,7 +372,7 @@ class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
             )
             
             source_cmd = "source /usr/lib/openfoam/openfoam2412/etc/bashrc"
-            clean_cmd = "foamListTimes -rm && rm -rf processor* postProcessing VTK"
+            clean_cmd = "foamListTimes -rm && rm -rf processor* postProcessing VTK constant/polyMesh"
             
             # NOTE: cartesianMesh MUST run in serial — its boundary layer generator
             # (createLayerCells) has a known segfault when run in parallel via MPI.
@@ -287,7 +381,7 @@ class OBJECT_OT_GenerateCFMesh(bpy.types.Operator):
                 
             full_cmd = f"{source_cmd} && {run_mesher} && foamToSurface -constant constant/triSurface/result.stl"
             
-            run_command_async(full_cmd, case_dir)
+            run_command_async(full_cmd, case_dir, log_filename="meshing.log")
             self.report({'INFO'}, "Meshing started in background. Check 'Status' above.")
             
         except PermissionError:
